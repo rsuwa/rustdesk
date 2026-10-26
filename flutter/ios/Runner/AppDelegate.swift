@@ -8,7 +8,9 @@ import AVFoundation
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    #if !DUODESK_UI_SCENE
     GeneratedPluginRegistrant.register(with: self)
+    #endif
     do {
       // Mix remote audio with other apps while still respecting silent mode.
       try AVAudioSession.sharedInstance().setCategory(.ambient)
@@ -24,3 +26,11 @@ import AVFoundation
     session_get_rgba(nil, 0);
   }
 }
+
+#if DUODESK_UI_SCENE
+extension AppDelegate: FlutterImplicitEngineDelegate {
+  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+  }
+}
+#endif

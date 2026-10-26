@@ -1,0 +1,152 @@
+name: DuoDesk iOS (unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/duodesk-mvp]
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: "3.44.9"
+  RUST_VERSION: "1.75.0"
+  VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
+  DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+  IPHONEOS_DEPLOYMENT_TARGET: "27.1"
+
+jobs:
+  generate-bridge:
+    uses: ./.github/workflows/bridge.yml
+
+  build-ios:
+    needs: generate-bridge
+    runs-on: xcode-27
+    timeout-minutes: 120
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Verify Xcode and SDK
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+          test "$(xcodebuild -version | head -n 1)" = "Xcode 27.1"
+          test "$(xcrun --sdk iphoneos --show-sdk-version)" = "27.1"
+
+      - name: Install build dependencies
+        run: |
+          brew install nasm yasm gnu-sed
+          echo "$(brew --prefix gnu-sed)/libexec/gnubin" >> "$GITHUB_PATH"
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Prepare iOS-only Flutter and UIScene configuration
+        run: |
+          # Reuse the existing newer-Flutter compatibility patch only in this checkout.
+          bash .github/patches/apply_flutter_3.44_source_patches.sh
+          cat >> flutter/ios/Flutter/Release.xcconfig <<'EOF'
+
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) DUODESK_UI_SCENE
+          IPHONEOS_DEPLOYMENT_TARGET = 27.1
+          EOF
+          python3 - <<'PY'
+          import pathlib
+          import plistlib
+
+          path = pathlib.Path("flutter/ios/Runner/Info.plist")
+          with path.open("rb") as stream:
+              info = plistlib.load(stream)
+          info["CFBundleDisplayName"] = "DuoDesk"
+          info["UIApplicationSceneManifest"] = {
+              "UIApplicationSupportsMultipleScenes": False,
+              "UISceneConfigurations": {
+                  "UIWindowSceneSessionRoleApplication": [{
+                      "UISceneClassName": "UIWindowScene",
+                      "UISceneDelegateClassName": "FlutterSceneDelegate",
+                      "UISceneConfigurationName": "flutter",
+                      "UISceneStoryboardFile": "Main",
+                  }],
+              },
+          }
+          with path.open("wb") as stream:
+              plistlib.dump(info, stream, sort_keys=False)
+
+          # Keep the old iOS workflow's deployment targets unchanged.
+          path = pathlib.Path("flutter/ios/Podfile")
+          path.write_text(path.read_text().replace("platform :ios, '13.0'", "platform :ios, '27.1'")
+                          .replace("= '11.0'", "= '27.1'"))
+          path = pathlib.Path("flutter/ios/Runner.xcodeproj/project.pbxproj")
+          path.write_text(path.read_text().replace("IPHONEOS_DEPLOYMENT_TARGET = 13.0;",
+                                                  "IPHONEOS_DEPLOYMENT_TARGET = 27.1;"))
+          PY
+
+      - name: Restore generated bridge files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bridge-artifact-flutter-3.44
+          path: ./
+
+      - name: Resolve Flutter dependencies and run DuoDesk tests
+        working-directory: flutter
+        run: |
+          flutter --version
+          dart --version
+          flutter pub get
+          flutter test test/duodesk_*_test.dart --timeout 60s
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
+
+      - name: Build native codec dependencies
+        run: >-
+          "$VCPKG_ROOT/vcpkg" install --triplet arm64-ios
+          --x-install-root="$VCPKG_ROOT/installed"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          prefix-key: duodesk-ios
+          key: aarch64-apple-ios
+
+      - name: Build Rust library
+        run: cargo build --locked --features flutter,hwcodec --release --target aarch64-apple-ios --lib
+
+      - name: Build unsigned Xcode archive
+        working-directory: flutter
+        run: flutter build ipa --release --no-codesign
+
+      - name: Package unsigned artifacts
+        working-directory: flutter/build/ios
+        run: |
+          test -d archive/Runner.xcarchive/Products/Applications/Runner.app
+          ditto -c -k --sequesterRsrc --keepParent archive/Runner.xcarchive DuoDesk.xcarchive.zip
+          mkdir Payload
+          ditto archive/Runner.xcarchive/Products/Applications/Runner.app Payload/Runner.app
+          ditto -c -k --keepParent Payload DuoDesk-unsigned.ipa
+
+      - name: Upload unsigned archive and IPA
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: duodesk-ios-unsigned
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            flutter/build/ios/DuoDesk.xcarchive.zip
+            flutter/build/ios/DuoDesk-unsigned.ipa
