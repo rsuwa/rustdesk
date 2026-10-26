@@ -57,10 +57,10 @@ iOSで通常の接続を開始すると操作デッキが表示される。接�
 
 - `flutter test --no-pub test/duodesk_actions_test.dart test/duodesk_input_test.dart test/duodesk_workspace_test.dart`: 10件合格。レイアウト変更中のviewport State保持、左右クリック、2軸スクロール、ドラッグ取消・ロック解除、モード変更、権限喪失後の解除、非同期押下と解除の順序、OS別キー割当、マウス解除メッセージがnativeの文字列マップ契約を満たすことを検査した。
 - `dart analyze lib/mobile/duodesk test/duodesk_actions_test.dart test/duodesk_input_test.dart test/duodesk_workspace_test.dart`: 指摘なし。
-- 変更した既存Dartファイルを含む解析: 生成済み`flutter/lib/generated_bridge.dart`がないため7エラー（未定義の生成型を含む）と既存API非推奨等が残る。新規部分の指摘は修正したが、native FFIを含む型検査完了とは扱わない。指示どおりcodegenは実行していない。
-- `flutter test --no-pub`全体: 53件合格、1件skip、15 suiteのロード失敗。生成bridge未配置に加え、ローカル新Flutterと既存`DialogTheme` / `TabBarTheme` / `google_fonts 6.2.1`等の互換性エラー。今回の範囲で全プラットフォームの更新は行わない。iOS CIでは既存3.44互換パッチと生成bridgeを復元する。
+- 変更した既存Dartファイルを含む解析: 生成済み`flutter/lib/generated_bridge.dart`がないため7エラー（未定義の生成型を含む）と既存API非推奨等が残る。初回はnative FFIを含む型検査完了とは扱わなかった。継続作業ではCI run 40305861846の`bridge-artifact-flutter-3.44`から生成Dartファイルだけを取得し、gitignoredのローカル生成物として復元した。変更対象の解析はエラー・警告0件、既存の非推奨等の情報87件となり、生成型に関する7エラーは解消した。ローカルでcodegenは実行していない。
+- 初回ローカルの`flutter test --no-pub`全体: 53件合格、1件skip、15 suiteのロード失敗。生成bridge未配置に加え、ローカル新Flutterと既存`DialogTheme` / `TabBarTheme` / `google_fonts 6.2.1`等の互換性エラー。今回の範囲で全プラットフォームの更新は行わない。iOS CIでは既存3.44互換パッチと生成bridgeを復元する。
 - Widgetの実描画をDesk / Compact Terminal / Canvas / Canvas展開で目視確認した。リモート部分は検証用の代替表示であり、実接続画面の確認ではない。
-- Rust: `rustfmt --edition 2021 --emit stdout --config skip_children=true src/flutter_ffi.rs`で構文解析できた。`cargo check --locked --offline --lib --no-default-features --features flutter`は`libs/hbb_common/Cargo.toml`未配置でmanifest読込み時に停止した。Rust変更をコンパイル確認済みとは扱わない。
+- Rust: `rustfmt --edition 2021 --emit stdout --config skip_children=true src/flutter_ffi.rs`で構文解析できた。`cargo check --locked --offline --lib --no-default-features --features flutter`は`libs/hbb_common/Cargo.toml`未配置でmanifest読込み時に停止した。このローカル検査ではコンパイル確認済みと扱わなかった。継続作業のmacOS CIではiOS releaseコンパイルを確認した。
 - `git diff --check`: 合格。iOS構成の検査と出典は[ビルド記録](ios-build.md)を参照。
 
 全体テストでロードできなかったsuite: `api_server_warning_test.dart`, `autocomplete_peer_merge_test.dart`, `cursor_default_test.dart`, `cursor_replay_test.dart`, `cursor_size_test.dart`, `download_path_test.dart`, `file_manager_navigation_keys_test.dart`, `file_model_test.dart`, `keyboard_shortcuts_test.dart`, `quality_monitor_transport_test.dart`, `server_settings_dialog_test.dart`, `shortcut_model_test.dart`, `terminal_alt_screen_scroll_test.dart`, `terminal_model_lifecycle_test.dart`, `terminal_mouse_handler_test.dart`。
@@ -79,12 +79,16 @@ submodule、依存lock、通信プロトコル、サーバー、Android / Window
 
 ## 未検証・次の確認
 
-macOS CIでのunsigned archive、実署名、iOS 27.1実機への導入、Ubuntu / macOS / Windowsへの接続・入力・クリップボード、実機の開閉・回転・画面サイズ変更、物理マウスとキーボードの併用は未検証。Issue #16527のCJK確定入力・削除・貼り付けは既存版との比較が必要で、今回解決したとは扱わない。
+macOS CIでのunsigned archiveと未署名IPA生成は成功した。実署名、iOS 27.1実機への導入、Ubuntu / macOS / Windowsへの接続・入力・クリップボード、実機の開閉・回転・画面サイズ変更、物理マウスとキーボードの併用は未検証。Issue #16527のCJK確定入力・削除・貼り付けは既存版との比較が必要で、今回解決したとは扱わない。
 
-次は手動iOS CIを実行し、依存ビルドとUIScene起動を確認したうえで、上記3OSへ同じ操作を試す。P1 / P2には拡張していない。コミット・push・CI起動は行っていない。
+次は生成済みarchiveを署名し、実機でUIScene起動と上記3OSへの同じ操作を試す。P1 / P2には拡張していない。初回P0実装ではコミット・push・CI起動を行わず、継続作業で実施する。
 
 ## 開発ブランチとCI検証（継続作業）
 
-DuoDeskのベース兼開発ブランチは`feat/duodesk-mvp`。upstreamの取込み先はこのブランチとし、最終的にもmasterへマージしない。ユーザーの既存変更2件は作業ツリーへ残し、DuoDeskのコミットに含めない。実装、ビルド基盤、CIログに基づく修正を分けてコミットし、自分のフォーク`rsuwa/rustdesk`の同名ブランチだけへpushする。PRが必要になった場合もmaster向けには作成しない。
+DuoDeskの長期ベースは`duodesk`、今回の作業ブランチは`feat/duodesk-mvp`。ベースは共通開始点`f96a44a01`から作成し、CIで検証したP0へ進める。今後のDuoDesk用PRやupstream取込みは`duodesk`を基準にし、最終的にもmasterへマージしない。ユーザーの既存変更2件は作業ツリーへ残し、DuoDeskのコミットに含めない。実装、ビルド基盤、CIログに基づく修正を分けてコミットし、自分のフォーク`rsuwa/rustdesk`の同名ブランチだけへpushする。PRが必要になった場合もmaster向けには作成しない。
 
 新規workflowはデフォルトブランチへ置かないため、`workflow_dispatch`に加えて`feat/duodesk-mvp`限定のpushトリガーを追加した。これにより開発ブランチだけで未署名iOS CIを検証する。ビルド結果と成果物は以下へ追記する。
+
+[CI run 40312089557](https://github.com/rsuwa/rustdesk/actions/runs/40312089557)は全ジョブ成功。Flutter 3.44.9 / Xcode 27.1 / iOS SDK 27.1 / Rust 1.75.0で、関連テスト10件、Rust release、Xcode archive、未署名IPAとxcarchive ZIPの作成・アップロードを確認した。検証したソースは`c24c12061`。2件のビルド問題は、iOS配備対象の環境変数をtarget工程へ限定し、CIコピーだけでSwiftPMを無効化して既存CocoaPodsを維持する修正で解消した。詳細と成果物は[ビルド記録](ios-build.md)を参照。
+
+この段階ではPRをmasterへ作らず、検証済みP0をDuoDeskの専用ベースへfast-forwardする。今後の機能・修正はそのベースから分岐し、PRのbaseを`duodesk`にする。署名・実機受入を次の優先工程とし、P1には着手しない。

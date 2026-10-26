@@ -1,6 +1,6 @@
 # DuoDesk iOSビルド
 
-確認日: 2026-10-26。Ubuntu上で構成を編集・検査した。macOS CI、iOSシミュレーター、実機でのビルド・起動・接続は未実施。
+確認日: 2026-10-26。Ubuntu上で構成を編集・検査し、継続作業でmacOS CIを実行した。実行結果は末尾に記録する。iOSシミュレーターと実機での起動・接続は未実施。
 
 ## 既存構成と今回の選択
 
@@ -35,7 +35,7 @@
 
 ## 未署名ビルドの実行
 
-コードを対象リポジトリへ反映した後、GitHub Actionsから **DuoDesk iOS (unsigned)** を選び、対象ブランチの **Run workflow** を実行する。初回P0実装ではpush・CI起動を行わなかった。継続作業では専用ブランチへのpushとCI実行が承認されている。デフォルトブランチへ追加せず起動するため、この開発ブランチ限定のpushトリガーも用意した。
+今回確認した起動方法は、`feat/duodesk-mvp`へのpush。デフォルトブランチにworkflowを置かないため、`workflow_dispatch`のUI/APIが利用できるとは前提にしない。同じコミットの再検証には既存runのRe-run jobsも使える。GitHub Actionsから **Run workflow** が利用できる場合は対象ブランチを選ぶ。初回P0実装ではpush・CI起動を行わなかった。継続作業では専用ブランチへのpushとCI実行が承認されている。デフォルトブランチへ追加せず起動するため、この開発ブランチ限定のpushトリガーも用意した。
 
 ワークフローは既存のLinux用FFI生成ジョブを呼び、macOSで以下を実行する。
 
@@ -59,7 +59,51 @@
 ## 検証と残作業
 
 - ローカル: YAML解析、埋め込みシェルの`bash -n`、準備工程の一時コピー上での実行、生成manifest・配備対象・Swift条件の確認に合格した。`swiftc -frontend -parse`も`DUODESK_UI_SCENE`あり・なしで合格した。これは構文と設定生成の検査であり、Flutter SDKとの型検査ではない。
-- 未検証: macOSでの依存ビルド、SwiftのFlutter SDKを使った型検査、Xcode archive生成、署名、インストール、UIScene起動、折りたたみ・回転時の実機挙動、実接続。
-- Rust 1.75で読めるlock形式v3を保持しているが、全依存を同版でコンパイルする検証は未実施。既存のFFmpeg用iOS overlayに残る`-mios-version-min=8.0`、`-fembed-bitcode`等を含め、新SDKでのネイティブ依存互換性は最初のCI実行で確認する。
+- CI: macOSでの依存ビルド、Rust、Flutter/Swiftを含むXcode archive生成、未署名IPAの作成に成功。DuoDeskテスト10件も合格した。
+- 未検証: 署名、インストール、実際のUIScene起動、折りたたみ・回転時の実機挙動、実接続。
+- Rust 1.75.0と既存lock形式v3の組合せでiOS releaseビルドに成功した。既存FFmpeg overlayもXcode 27.1で構築できたため、portのソースやsubmoduleの更新は行わなかった。
 - CI失敗時は依存ビルド、FFI、Flutter、Xcode、署名を分けて調べる。未署名CIの合格を実機操作の合格とは扱わない。
 - [RustDesk Issue #16527](https://github.com/rustdesk/rustdesk/issues/16527)はopen（2026-10-26確認）。iOS→macOSでCJKの確定単文字がキーストローク経路へ流れる問題が報告されている。DuoDeskは既存の標準キーボード・IME経路を利用し、この問題を解決したとは扱わない。日本語・中国語・韓国語の確定入力、削除、貼り付けを実機で比較する。ホストのIMEや入力方式まで変える修正は独立課題とする。
+
+## 実機でのP0受入確認（未実施）
+
+署名済みビルドをiOS 27.1以降の端末へ入れてから、Ubuntu 24.04 / macOS / Windowsの通常版RustDeskへ接続する。新しいホスト機能は不要。少なくとも次を実際に操作し、接続先OS、RustDesk版、結果を記録する。
+
+| 確認 | 合格条件 |
+|---|---|
+| 接続・認証・映像 | 既存クライアントと同じ接続手順で画面が表示される |
+| Desk / Canvas / Compact | 自動選択と手動切替で操作に届き、表示が意図せず隠れない |
+| サイズ変更・回転・開閉 | 接続を維持し、画面四隅の狙った位置を操作できる |
+| ポインタ・スクロール | 左右クリックと縦横スクロールが正しい方向へ動く |
+| ドラッグ・中断 | 長押し/ロックで移動でき、取消・モード変更・背景移行・切断で押下が残らない |
+| 標準キーボード | 開閉後も通常入力と物理キーが使える |
+| Terminal・tmux | Esc/Tab/Enter/矢印、Ctrl+C/R/A/E、標準prefixとwindow移動が動く |
+| 貼り付け・日本語 | OS/作業モードの割当が正しく、CJK確定・削除を既存版と比較できる |
+
+ビルド成功だけではこの表は合格にしない。P1機能の追加より、この受入確認で再現したP0問題の修正を優先する。
+
+## GitHub Actions実行記録
+
+| Run | コミット | 結果 |
+|---|---|---|
+| [40305861846](https://github.com/rsuwa/rustdesk/actions/runs/40305861846) | `c1023f75d` | 失敗。FFI・SDK確認・DuoDeskテストは合格。vcpkgのhost用pkgconfがiOS向けにコンパイルされ実行不可 |
+| [40307930548](https://github.com/rsuwa/rustdesk/actions/runs/40307930548) | `e0e16c85d` | 失敗。ネイティブ依存・Rust release・DuoDeskテストは合格。Xcodeリンクでimage_picker_ios frameworkが未検出 |
+| [40312089557](https://github.com/rsuwa/rustdesk/actions/runs/40312089557) | `c24c12061` | 成功。FFI、10件のDuoDeskテスト、ネイティブ依存、Rust、Xcode archive、未署名IPA梱包・アップロードが完了 |
+
+開発ブランチへのpush先は`rsuwa/rustdesk:feat/duodesk-mvp`。長期ベース`duodesk`も共通開始点`f96a44a01`からフォークへ作成済みで、ビルド検証後にP0へ進める。masterは変更しない。
+
+初回失敗の原因はジョブ全体の`IPHONEOS_DEPLOYMENT_TARGET=27.1`がvcpkgのmacOS用ホストツールにも効いたこと。ログの`using sysroot for macOS 27.0 but targeting arm64-apple-ios27.1.0`と、pkgconfのsanitycheck実行失敗を確認した。修正コミット`e0e16c85d`でこの環境変数をRustのiOSビルドとFlutter archive工程だけへ限定した。vcpkgや他プラットフォームの既存portは変更していない。
+
+2回目はXcodeのリンク工程で`Framework image_picker_ios not found`。Flutter 3.44.9はSwiftPMを既定で有効にし、ログにも自動移行が出ている。一方、既存pbxprojはCocoaPods用の`-framework image_picker_ios`等を固定参照していた。固定版のpodhelperはSwiftPM対応pluginをPods対象から除外するため、リンク参照と成果物が不整合になった。修正コミット`c24c12061`で、iOS CI作業コピーのpubspecに`flutter.config.enable-swift-package-manager: false`を加えて従来のCocoaPodsへ統一した。共有pubspecや他OSは変更しない。[公式のproject単位設定](https://docs.flutter.dev/packages-and-plugins/swift-package-manager/for-app-developers#how-to-turn-off-swift-package-manager)と、固定3.44.9のmanifest/features/podhelper実装で設定対応を確認した。
+
+成功したソースは`c24c120619ca302dacbd9c6d3b733773067d5ba2`。成果物は[duodesk-ios-unsigned](https://github.com/rsuwa/rustdesk/actions/runs/40312089557/artifacts/12647320814)内の`DuoDesk-unsigned.ipa`と`DuoDesk.xcarchive.zip`。保存期限は2026-11-02 20:34 JST（7日）。署名済み配布や実機起動は行っていない。
+
+ダウンロードしたIPAとxcarchive ZIPを実際に開き、以下を検査した。これは構造・ビルド設定の検査で、実機実行の代わりではない。
+
+- IPAの`Payload/Runner.app/Runner`はarm64のiOS実行形式。Mach-Oの配備対象とSDKは27.1。
+- Info.plistは表示名DuoDesk、MinimumOSVersion 27.1、SDK iphoneos27.1。`FlutterSceneDelegate`とMain storyboardのmanifestを確認。
+- 実行ファイルに`didInitializeImplicitFlutterEngine:`コールバックを確認。プロビジョニングは同梱されていない。
+- xcarchiveにも同じBundle IdentifierのRunner.appとdSYMsが存在する。
+- Bundle Identifierは既存の`com.carriez.flutterHbb`のまま。自分の証明書で導入する際は署名手順に従い、自分が利用できる識別子・Team・プロビジョニングへ合わせる。
+
+DuoDeskの初期ベースを確立するため、検証済みの実装とこの記録を`duodesk`へfast-forwardする。master向けPRやmasterへのマージは行わない。以後は`duodesk`をPRのbaseとし、まず署名・実機受入を進める。
