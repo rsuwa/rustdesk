@@ -61,6 +61,12 @@ jobs:
           import pathlib
           import plistlib
 
+          # Keep the existing CocoaPods framework linkage on this iOS build.
+          path = pathlib.Path("flutter/pubspec.yaml")
+          path.write_text(path.read_text().replace(
+              "\nflutter:\n",
+              "\nflutter:\n  config:\n    enable-swift-package-manager: false\n", 1))
+
           path = pathlib.Path("flutter/ios/Runner/Info.plist")
           with path.open("rb") as stream:
               info = plistlib.load(stream)
