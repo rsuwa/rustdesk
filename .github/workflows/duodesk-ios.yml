@@ -13,7 +13,6 @@ env:
   RUST_VERSION: "1.75.0"
   VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
   DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
-  IPHONEOS_DEPLOYMENT_TARGET: "27.1"
 
 jobs:
   generate-bridge:
@@ -126,9 +125,13 @@ jobs:
           key: aarch64-apple-ios
 
       - name: Build Rust library
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "27.1"
         run: cargo build --locked --features flutter,hwcodec --release --target aarch64-apple-ios --lib
 
       - name: Build unsigned Xcode archive
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "27.1"
         working-directory: flutter
         run: flutter build ipa --release --no-codesign
 
