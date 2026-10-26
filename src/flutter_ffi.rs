@@ -300,6 +300,14 @@ pub fn will_session_close_close_session(session_id: SessionID) -> SyncReturn<boo
 
 pub fn session_close(session_id: SessionID) {
     if let Some(session) = sessions::remove_session_by_session_id(&session_id) {
+        #[cfg(target_os = "ios")]
+        if session.is_default() {
+            use crate::common::input::{MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_TYPE_UP};
+            // Keep releases ahead of Data::Close on the same session sender.
+            for button in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT] {
+                session.send_mouse(button << 3 | MOUSE_TYPE_UP, 0, 0, false, false, false, false);
+            }
+        }
         crate::keyboard::shortcuts::clear_session_state(&session_id);
         // `release_remote_keys` is not required for mobile platforms in common cases.
         // But we still call it to make the code more stable.

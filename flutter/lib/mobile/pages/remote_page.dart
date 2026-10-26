@@ -25,6 +25,8 @@ import '../../models/shortcut_model.dart';
 import '../../utils/image.dart';
 import '../widgets/dialog.dart';
 import '../widgets/custom_scale_widget.dart';
+import '../duodesk/duodesk_session.dart';
+import '../duodesk/duodesk_workspace.dart';
 
 final initText = '1' * 1024;
 
@@ -106,6 +108,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   bool _waylandKeyboardGateInitialized = false;
 
   InputModel get inputModel => gFFI.inputModel;
+  late final _duoDeskInput = DuoDeskSessionInput(gFFI);
   SessionID get sessionId => gFFI.sessionId;
 
   final TextEditingController _textController =
@@ -183,6 +186,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   @override
   Future<void> dispose() async {
+    if (isIOS) {
+      _duoDeskInput.dispose();
+      gFFI.canvasModel.iosViewportSize = null;
+    }
     HardwareKeyboard.instance.removeHandler(_handleLocalKeyEvent);
     WidgetsBinding.instance.removeObserver(this);
     // Close the session up-front. `gFFI.close()` below only calls `sessionClose`
@@ -222,6 +229,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (isIOS && state != AppLifecycleState.resumed) {
+      _duoDeskInput.input.reset();
+    }
     if (state == AppLifecycleState.resumed) {
       trySyncClipboard();
     }
@@ -543,7 +553,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                 ],
               )),
           body: Obx(
-            () => getRawPointerAndKeyBody(Overlay(
+            () => isIOS
+                ? _getDuoDeskBody()
+                : getRawPointerAndKeyBody(Overlay(
               initialEntries: [
                 OverlayEntry(builder: (context) {
                   return Container(
@@ -582,6 +594,52 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   bool _handleLocalKeyEvent(KeyEvent event) => handleMobileLocalKeyEvent(event,
       remoteFocused: _physicalFocusNode.hasPrimaryFocus, inputModel: inputModel);
+
+  Widget _getDuoDeskBody() {
+    final ffiModel = Provider.of<FfiModel>(context);
+    final workspace = SafeArea(
+      child: DuoDeskWorkspace(
+        enabled: _duoDeskInput.enabled,
+        isMac: ffiModel.pi.platform == kPeerPlatformMacOS,
+        viewport: RawPointerMouseRegion(
+          inputModel: inputModel,
+          child: RawTouchGestureDetectorRegion(
+            ffi: gFFI,
+            child: getBodyForMobile(),
+          ),
+        ),
+        onViewportChanged: (size) {
+          gFFI.canvasModel.iosViewportSize = size;
+          gFFI.canvasModel.updateViewStyle();
+        },
+        onMove: _duoDeskInput.move,
+        onScroll: _duoDeskInput.scroll,
+        onLeftClick: () => _duoDeskInput.click(MouseButtons.left),
+        onRightClick: () => _duoDeskInput.click(MouseButtons.right),
+        onKeyboard: () {
+          if (keyboardVisibilityController.isVisible && _showEdit) {
+            _mobileFocusNode.unfocus();
+            _physicalFocusNode.requestFocus();
+            setState(() => _showEdit = false);
+          } else {
+            openKeyboard();
+          }
+        },
+        onResetInput: _duoDeskInput.input.reset,
+        onDrag: _duoDeskInput.input.drag,
+        onKey: _duoDeskInput.input.key,
+        onAction: _duoDeskInput.action,
+        onModifiersChanged: _duoDeskInput.input.setModifiers,
+      ),
+    );
+    return ffiModel.pi.isSet.isTrue
+        ? RawKeyFocusScope(
+            focusNode: _physicalFocusNode,
+            inputModel: inputModel,
+            child: workspace,
+          )
+        : workspace;
+  }
 
   Widget getRawPointerAndKeyBody(Widget child) {
     final ffiModel = Provider.of<FfiModel>(context);
@@ -714,7 +772,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
               right: 10,
               child: QualityMonitor(gFFI.qualityMonitorModel),
             ),
-            Obx(() {
+            if (!isIOS)
+              Obx(() {
               final chatKeyboardRequested =
                   gFFI.chatModel.softKeyboardRequested.value;
               return KeyHelpTools(
@@ -755,6 +814,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
           ];
           if (showCursorPaint) {
             paints.add(CursorPaint(widget.id));
+          }
+          if (isIOS) {
+            return paints;
           }
           if (gFFI.ffiModel.touchMode) {
             paints.add(FloatingMouse(

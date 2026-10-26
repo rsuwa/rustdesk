@@ -1935,6 +1935,9 @@ class InputModel {
   /// Desktop and web desktop continue to use the global position directly
   /// because their pointer mapping is window-based.
   Offset _pointerPositionForRemoteCanvas(PointerEvent event) {
+    if (isIOS && parent.target?.canvasModel.iosViewportSize != null) {
+      return event.localPosition;
+    }
     if (isDesktop || isWebDesktop) {
       return event.position;
     }

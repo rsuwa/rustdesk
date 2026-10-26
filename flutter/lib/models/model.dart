@@ -2245,6 +2245,8 @@ class CanvasModel with ChangeNotifier {
   bool _locked = false;
   double _devicePixelRatio = 1.0;
   Size _size = Size.zero;
+  // The iOS control deck supplies the clipped remote viewport's constraints.
+  Size? iosViewportSize;
   // the tabbar over the image
   // double tabBarHeight = 0.0;
   // the window border's width
@@ -2336,6 +2338,7 @@ class CanvasModel with ChangeNotifier {
       isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.bottom : 0;
 
   Size getSize() {
+    if (isIOS && iosViewportSize != null) return iosViewportSize!;
     final mediaData = MediaQueryData.fromView(ui.window);
     final size = mediaData.size;
     // If minimized, w or h may be negative here.
@@ -2374,6 +2377,7 @@ class CanvasModel with ChangeNotifier {
 
   // mobile only
   double getAdjustY() {
+    if (isIOS && iosViewportSize != null) return 0;
     final bottom =
         parent.target?.cursorModel.keyHelpToolsRectToAdjustCanvas?.bottom ?? 0;
     return max(bottom - MediaQueryData.fromView(ui.window).padding.top, 0);
